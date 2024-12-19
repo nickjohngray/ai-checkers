@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <title>Title</title>
+
+    <style>
+        .row {
+            background: aliceblue;
+        }
+    </style>
+
+    <script>
+
+        let isPLayersTurn = true;
+        let isReadyToApprove = false;
+        let AiFromCell = null
+        let AiToCell = null;
+
+        const getRowNumber = (checker) => parseInt(checker.id.substring(4, 6));
+        const getColNumber = (checker) => parseInt(checker.id.substring( checker.id.lastIndexOf("_") ));
+        const make = (tagName) => document.createElement(tagName);
+        const makeDiv = () => make("DIV");
+        const addBorder = (checker) => checker.style.border = "10px yellow solid";
+        const removeBorder = (checker) => checker.style.border = "none";
+        let badBoardConfigs = [];
+        let goodBoardConfigs = [];
+
+
+        const cells = [];
+        const init = () => {
+            makeBoard();
+            setupBoard();
+            setupBehaviour()
+            setUpClickToPunish();
+            loadMemory();
+        }
+
+        const loadMemory = () => {
+            const b = localStorage.getItem("badBoardConfigs");
+            if (b) {
+                badBoardConfigs = JSON.parse(b);
+            }
+            const g = localStorage.getItem("goodBoardConfigs");
+            if (g) {
+                goodBoardConfigs = JSON.parse(g);
+            }
+
+        }
+
+        const setUpClickToPunish = () => {
+            window.oncontextmenu = (e) => {
+                punish();
+            }
+        }
+
+
+        const getCurrentBoardConfig = () => {
+            // what square are the peaces on
+            const badBoardConfig = [];
+
+            for (let i = 0; i < cells.length; i++) {
+                let cell = {};
+                cell.id = cells[i].id;
+                if (cells[i].firstChild) {
+                    cell.isEmpty = false;
+                    //   cell.blocked = false;
+                    // cell.isAi = cells[i].firstChild.isAi;
+                } else {
+                    cell.isEmpty = true;
+                }
+                badBoardConfig.push(cell);
+            }
+            return badBoardConfig;
+        }
+
+        const moveAILastMoveBack = () => {
+            // put the board back in a good state
+            const peaceToMove = AiToCell.firstChild;
+            peaceToMove.parentNode.removeChild(peaceToMove);
+            // move to new  position
+            AiFromCell.prepend(peaceToMove);
+        }
+
+
+        const noMoves = (id, processed = [], boardConfig = getCurrentBoardConfig()) => {
+            // simulate move from, from cell to all possible to cells
+            // from cell does not change
+            // after the simulated move remember it by adding board config to board configs
+
+            let newId = null;
+
+            // find the first empty square and make it not empty
+            for (let i = 0; i < boardConfig.length; i++) {
+
+                if (processed.find((ID) => ID === boardConfig[i].id)) {
+                    continue;
+                }
+                if (boardConfig[i].isEmpty &&
+                    boardConfig[i].id !== id) {
+                    boardConfig[i].isEmpty = false;
+                    processed.push(boardConfig[i].id);
+                    newId = boardConfig[i].id;
+
+                    break;
+                }
+            }
+
+            if (!newId) {
+                localStorage.setItem("badBoardConfigs", JSON.stringify(badBoardConfigs));
+                return;
+            }
+
+            // make the from square empty
+            for (let i = 0; i < boardConfig.length; i++) {
+                if (boardConfig[i].id === id) {
+                    boardConfig[i].isEmpty = true;
+                    //  id = newId;
+                    break;
+                }
+            }
+            badBoardConfigs.push(boardConfig);
+            noMoves(id, processed);
+
+
+            //
+            // const currentBoardConfig = getCurrentBoardConfig();
+            // let id = AiToCell.id;
+            // for (let i = 0; i < currentBoardConfig.length; i++) {
+            //
+            //             if(
+            //                 currentBoardConfig[i].isEmpty
+            //             && id !== currentBoardConfig[i]) {
+            //                 currentBoardConfig[i].isEmpty = false;
+            //                // currentBoardConfig[i].blocked = true;
+            //
+            //                 for (let j = 0; j < currentBoardConfig.length; j++) {
+            //                     if(currentBoardConfig[j].id === id )  {
+            //                         currentBoardConfig[j].isEmpty = true;
+            //                         break;
+            //                     }
+            //                 id = currentBoardConfig[i].id;
+            //                 const currentBoardConfig = getCurrentBoardConfig();
+            //                 badBoardConfigs.push(currentBoardConfig);
+            //                 i = 0;
+            //             }
+            //
+            //         }
+            // }
+
+        }
+        const punish = () => {
+            badBoardConfigs.push(getCurrentBoardConfig());
+            localStorage.setItem("badBoardConfigs", JSON.stringify(badBoardConfigs));
+            // put the board back in a good state
+            AiFromCell.style.opacity = "100%";
+            AiToCell.style.opacity = "100%";
+
+            moveAILastMoveBack();
+            isReadyToApprove = false;
+            isPLayersTurn = true;
+
+
+            enableButtons();
+        }
+
+        const approve = () => {
+            AiFromCell.style.opacity = "100%";
+            AiToCell.style.opacity = "100%";
+            goodBoardConfigs.push(getCurrentBoardConfig());
+
+            localStorage.setItem("goodBoardConfigs", JSON.stringify( goodBoardConfigs));
+            isReadyToApprove = false;
+            isPLayersTurn = true;
+            enableButtons();
+        }
+
+        const enableButtons = () => {
+            document.getElementById('approve').disabled = true;
+            document.getElementById('punish').disabled = true;
+        }
+
+        const beginAi = () => {
+
+
+            const resetProcessed = () => {
+                for (let i = 0; i < cells.length; i++) {
+                    cells[i].processed = false;
+                }
+            }
+            let moved = false;
+
+            FindAValidMove:
+                for (let i = 0; i < cells.length; i++) {
+                    if (i === cells.length - 1 && !moved) {
+                        i = 0;
+                    }
+                    // find first peace
+
+                    if (isPLayersTurn || isReadyToApprove) break;
+                    if (!cells[i].firstChild) continue; // it knows it can't move nothing
+                    if (!cells[i].firstChild.isAi) continue; // ensure the it's an AI peace
+
+
+                    // find the first peace
+                    if (cells[i].processed) continue;
+                    cells[i].processed = true;
+                    // find second peace
+                    const row = getRowNumber(cells[i]);
+                    const col = getColNumber(cells[i]);
+
+                    FindAValidMoveTo:
+                        for (let j = 0; j < cells.length; j++) {
+
+                            // if (badToMoveIDs.find( (ID)=> ID === cells[j].id))
+                            // {
+                            //     continue;
+                            // }
+
+
+                            if (cells[j].processed) continue;
+                            if (cells[j].firstChild) continue; // ensure the square is empty
+
+
+                            const previousRow = getRowNumber(cells[j]);
+                            const previousCol = getColNumber(cells[j]);
+
+
+                            // if (document.getElementById('fordOnly').checked) {
+                            //     if (row >= previousRow) {
+                            //         //badBoardConfigs.push( currentBoardConfig );
+                            //
+                            //         continue FindAValidMove;
+                            //     }
+                            // }
+                            //
+                            // if (document.getElementById('singleSquare').checked) {
+                            //     if (row - previousRow > 1) {
+                            //            continue FindAValidMove;
+                            //     }
+                            // }
+
+
+                            // move it
+                            const paceToMove = cells[i].firstChild;
+
+                            //   paceToMove.innerText = 'F';
+                            //  cells[j].firstChild.innerText = 'T';
+
+
+                            // check if the next move is going to be valid
+                            const currentBoardConfig = getCurrentBoardConfig();
+                            for (let k = 0; k < currentBoardConfig.length; k++) {
+                                // found the square this pace is on, it's about to move off it
+                                if (currentBoardConfig[k].id === cells[i].id) {
+                                    currentBoardConfig[k].isEmpty = true;
+                                    break;
+                                    // delete currentBoardConfig[k].isAi;
+                                }
+                            }
+
+                            for (let k = 0; k < currentBoardConfig.length; k++) {
+                                // found the square this pace is about to move to
+                                if (currentBoardConfig[k].id === cells[j].id) {
+                                    currentBoardConfig[k].isEmpty = false;
+                                    break;
+                                }
+                            }
+
+                            let learnt = false;
+                            for (let k = 0; k < badBoardConfigs.length; k++) {
+                                if (JSON.stringify(badBoardConfigs[k]) === JSON.stringify(currentBoardConfig)) {
+                                    learnt = true;
+                                    break;
+                                }
+                            }
+                            // // not learnt but it is moving backward and no ai backward moves is checked
+                            // if (!learnt) {
+                            //     if (document.getElementById('fordOnly').checked) {
+                            //         if (document.getElementById('fordOnly').checked) {
+                            //             if (row >= previousRow) {
+                            //                 //badBoardConfigs.push( currentBoardConfig );
+                            //                 badBoardConfigs.push(currentBoardConfig);
+                            //                 learnt = true;
+                            //                 //continue FindAValidMove;
+                            //             }
+                            //         }
+                            //     }
+                            //
+                            //     if (document.getElementById('singleSquare').checked) {
+                            //         if (previousRow - row  > 1 &&  col - previousCol  > 1 ) {
+                            //             badBoardConfigs.push(currentBoardConfig);
+                            //             learnt = true;
+                            //             // if(j === cells.length -1) {
+                            //             //     continue FindAValidMove;
+                            //             // } else {
+                            //             //     continue FindAValidMove;
+                            //             // }
+                            //
+                            //         }
+                            //     }
+                            //
+                            //     // if (row >= previousRow) {
+                            //     //     badBoardConfigs.push( currentBoardConfig );
+                            //     //     learnt = true;
+                            //     //     break FindAValidMove;
+                            //     // }
+                            //
+                            // }
+
+
+                            if (learnt) {
+                                resetProcessed();
+                                continue FindAValidMoveTo;
+                                // FindAValidMove;
+                            }
+
+
+                            // remove from old position
+
+
+                            paceToMove.parentNode.removeChild(paceToMove);
+                            // move to new  position
+                            cells[j].prepend(paceToMove);
+
+                            resetProcessed();
+
+                            isReadyToApprove = true;
+                            document.getElementById('approve').disabled = false;
+                            document.getElementById('punish').disabled = false;
+
+                            AiFromCell = cells[i];
+                            AiToCell = cells[j];
+
+                            AiFromCell.style.opacity = "50%";
+                            AiToCell.style.opacity = "50%";
+
+                            break FindAValidMove;
+                        }
+                }
+        }
+
+        const setupBehaviour = () => {
+            // set up events, just need click on user peace , ai don't need this
+            let quit = false;
+
+            for (let i = 0; i < cells.length; i++) {
+
+                cells[i].addEventListener('click', (evt) => {
+                    // if (!isPLayersTurn) {
+                    //     if (!aiHuman) {
+                    //          return;
+                    //
+                    //     }
+                    // }
+
+                    const  aiHuman = document.getElementById('aiHuman').checked
+
+                    const cell = cells[i]; //evt.target;
+
+                    // if player has already selected a peace to move, than move it
+
+                    for (let j = 0; j < cells .length; j++) {
+                        const previousChecker = cells[j].firstChild;
+                        if (!previousChecker) {
+                            continue;
+                        }
+
+
+
+
+                        // player is moving from selected square
+                        if (previousChecker.isSelected) {
+                            // move checker if not illegal move
+
+                            // same square
+                            if (previousChecker === cell) {
+                                return;
+                            }
+
+                            //  occupied square
+                            if (cell.firstChild) {
+                                return;
+                            }
+
+                            // more then one square
+                            const previousRow = getRowNumber(cells[j]);
+                            const row = getRowNumber(cell);
+
+                            if (row - previousRow > 1) {
+                                return;
+                            }
+
+                            // no backwards moves ( unless king program that latter )
+                            //   if (row > previousRow) {
+                            //      return;
+                            //  }
+
+
+
+                            // move it
+                            // remove from old position
+                            previousChecker.parentNode.removeChild(previousChecker);
+                            // move to new  position
+                            cell.prepend(previousChecker);
+
+
+
+                            isPLayersTurn = false;
+                            previousChecker.isSelected = false;
+
+                            setTimeout(() => {
+                                removeBorder(previousChecker);
+                            }, 250);
+
+
+                            if(!aiHuman) {
+                                // if we get here its ai move,
+                                //  if aiHuman is checked allow a human to make that move
+                                beginAi();
+                            } else { // ai human second move approve it
+                                if(!isPLayersTurn ) {
+                                    if( cell.firstChild.isAi &&
+                                        previousChecker.isAi
+                                    ) {
+                                        AiFromCell = previousChecker;
+                                        AiToCell = cell;
+                                        approve();
+                                    }
+                                }
+
+                            }
+                            return;
+                        }
+                    }
+
+                    const checker = cell.firstChild;  // get the checker from the square
+
+                    // empty square
+                    if (!checker) {
+                        return;
+                    }
+
+                    //if (!checker.isAi) {
+                    checker.isSelected = checker.isSelected === false;
+                    if (checker.isSelected) {
+                        addBorder(checker);
+                    } else {
+                        removeBorder(checker);
+                    }
+                    //}
+
+                })
+            }
+        }
+
+        // put peaces on the board
+        const setupBoard = () => {
+            isPLayersTurn = true;
+            // put peaces on the board
+            for (let i = 0; i < cells.length; i++) {
+                const row = getRowNumber(cells[i]);
+                // no peaces get placed in the middle of the board
+                if (row === 3 || row === 4) {
+                    continue;
+                }
+
+                const peace = makeDiv();
+                peace.style.width = '80px';
+                peace.style.height = '80px';
+                peace.style.borderRadius = '100px';
+                peace.style.display = 'flex'
+                peace.style.fontSize = '24px';
+                peace.style.justifyContent = 'center';
+                peace.style.alignContent = 'center';
+
+                peace.isKing = false;
+
+                if (row <= 3) { // first three rows are white peaces
+                    peace.style.backgroundColor = 'white';
+                    peace.isAi = true;
+                    peace.isDirectionUp = false;
+                    peace.innerText = i;
+                    peace.isSelected = false;
+
+                } else { // last three rows are red peaces
+                    peace.style.backgroundColor = 'red';
+                    peace.isAi = false;
+                    peace.isDirectionUp = true;
+                    peace.isSelected = false;
+
+                }
+
+                cells[i].appendChild(peace);
+            }
+        }
+
+        // makes the baord
+        const makeBoard = () => {
+            const cols = 8;
+            const rows = 8;
+            for (let i = 0; i < rows; i++) {
+                const row = make('DIV');
+                //row.setAttribute('data-row', i);
+                //row.classList.add('row_' + i);
+                row.style.display = 'flex'
+                row.style.flexDirection = 'row';
+                for (let j = 0; j < cols; j++) {
+
+                    const cell = make('DIV');
+                    cell.style.display = 'flex';
+                    cell.style.justifyContent = 'center';
+                    cell.style.alignContent = 'center';
+
+                    if (i % 2 === 0) {
+                        // black square
+                        cell.id = 'row_' + i + 'col_' + j;
+
+                        if (j % 2 !== 0) { // white
+
+                            cells.push(cell);
+                        }
+                        cell.style.backgroundColor = (j % 2 === 0) ? 'white' : 'black';
+                    } else {
+                        // black square
+                        if (j % 2 === 0) {
+                            cell.id = 'row_' + i + 'col_' + j;
+                            cells.push(cell);
+                        }
+                        cell.style.backgroundColor = (j % 2 === 0) ? 'black' : 'white';
+                    }
+                    cell.style.width = '100px';
+                    cell.style.height = '100px';
+                    cell.style.border = '1px solid black';
+                    row.appendChild(cell);
+
+                }
+                document.body.appendChild(row);
+                document.body.style.marginLeft = '200px';
+            }
+        }
+
+    </script>
+
+
+</head>
+<body oncontextmenu="return false;" onload='init()'>
+<button disabled id="approve" onclick="approve()">Approve</button>
+<button disabled id="punish" onclick="punish()">Punish</button>
+<button id="noMoves" onclick="noMoves(AiFromCell.id)"><h1>NO MOVES</h1></button>
+<input type="checkbox" id="fordOnly" checkedX> Ford Move Only </checkox>
+<input type="checkbox" id="singleSquare" checkedX> Single Square </checkox>
+<input type="checkbox" id="aiHuman" checkedX> AI Human </checkox>
+X
+</body>
+</html>
